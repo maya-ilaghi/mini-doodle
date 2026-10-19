@@ -1,0 +1,33 @@
+services:
+  db:
+    image: postgres:16
+    container_name: doodle-db
+    environment:
+      POSTGRES_DB: doodle
+      POSTGRES_USER: doodle
+      POSTGRES_PASSWORD: doodle
+    ports:
+      - "5432:5432"
+    volumes:
+      - db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U doodle -d doodle"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  app:
+    build: .
+    container_name: doodle-app
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/doodle
+      SPRING_DATASOURCE_USERNAME: doodle
+      SPRING_DATASOURCE_PASSWORD: doodle
+    ports:
+      - "8080:8080"
+
+volumes:
+  db-data:
