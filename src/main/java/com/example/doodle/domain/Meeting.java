@@ -44,4 +44,9 @@ public class Meeting {
         this.title = title;
         this.description = description;
     }
+
+    public void addParticipant(Participant participant) {
+        participants.add(participant);
+        participant.setMeeting(this);
+    }
 }
