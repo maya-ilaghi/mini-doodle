@@ -5,7 +5,6 @@ import org.springframework.web.bind.annotation.ResponseStatus;
 
 import java.util.UUID;
 
-@ResponseStatus(HttpStatus.CONFLICT)
 public class SlotAlreadyBookedException extends RuntimeException {
     public SlotAlreadyBookedException(UUID slotId) {
         super("Slot is already booked: " + slotId);

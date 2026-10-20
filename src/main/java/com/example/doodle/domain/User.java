@@ -13,7 +13,7 @@ import java.util.UUID;
 import static jakarta.persistence.CascadeType.ALL;
 
 @Entity
-@Table(name = "doodle_user")
+@Table(name = "app_user")
 @Getter
 @Setter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
