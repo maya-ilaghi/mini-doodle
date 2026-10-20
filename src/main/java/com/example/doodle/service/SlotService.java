@@ -1,6 +1,9 @@
 package com.example.doodle.service;
 
+import com.example.doodle.controller.dto.AvailabilityResponse;
+import com.example.doodle.controller.dto.SlotResponse;
 import com.example.doodle.domain.TimeSlot;
+import com.example.doodle.domain.TimeSlotStatus;
 import com.example.doodle.domain.User;
 import com.example.doodle.exception.NotFoundException;
 import com.example.doodle.exception.SlotOverlapException;
@@ -13,6 +16,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -66,5 +70,29 @@ public class SlotService {
             throw new NotFoundException("slot", slotId);
         }
         slotRepository.deleteById(slotId);
+    }
+
+    @Transactional(readOnly = true)
+    public AvailabilityResponse getAvailability(UUID userId, Instant from, Instant to) {
+        // 1. load user -> calendar id
+        User user = userRepository.findById(userId)
+                .orElseThrow(() -> new NotFoundException("user", userId));
+        UUID calendarId = user.getCalendar().getId();
+
+        // 2. fetch slots in range
+        List<TimeSlot> slots = slotRepository.findByCalendarIdAndStartTimeBetween(calendarId, from, to);
+
+        // 3. partition into free vs busy by status
+        List<SlotResponse> free = slots.stream()
+                .filter(s -> s.getSlotStatus() == TimeSlotStatus.FREE)
+                .map(SlotResponse::from)
+                .toList();
+        List<SlotResponse> busy = slots.stream()
+                .filter(s -> s.getSlotStatus() == TimeSlotStatus.BUSY)
+                .map(SlotResponse::from)
+                .toList();
+
+        // 4. build the response
+        return new AvailabilityResponse(from, to, free, busy);
     }
 }

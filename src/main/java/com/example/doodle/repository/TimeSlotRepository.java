@@ -7,6 +7,7 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 public interface TimeSlotRepository extends JpaRepository<TimeSlot, UUID> {
@@ -18,4 +19,6 @@ public interface TimeSlotRepository extends JpaRepository<TimeSlot, UUID> {
     // free-vs-busy filtering — rides the (calendar_id, status) index
     Page<TimeSlot> findByCalendarIdAndSlotStatus(
             UUID calendarId, TimeSlotStatus status, Pageable pageable);
+
+    List<TimeSlot> findByCalendarIdAndStartTimeBetween(UUID calendarId, Instant from, Instant to);
 }

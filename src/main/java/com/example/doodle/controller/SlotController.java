@@ -1,5 +1,6 @@
 package com.example.doodle.controller;
 
+import com.example.doodle.controller.dto.AvailabilityResponse;
 import com.example.doodle.controller.dto.CreateSlotRequest;
 import com.example.doodle.controller.dto.SlotResponse;
 import com.example.doodle.service.SlotService;
@@ -49,5 +50,12 @@ public class SlotController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteSlot(@PathVariable UUID userId, @PathVariable UUID slotId) {
         slotService.deleteSlot(slotId);
+    }
+
+    @GetMapping("/availability")
+    public AvailabilityResponse availability(@PathVariable UUID userId,
+                                             @RequestParam Instant from,
+                                             @RequestParam Instant to) {
+        return slotService.getAvailability(userId, from, to);
     }
 }
