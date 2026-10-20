@@ -27,6 +27,9 @@ public interface TimeSlotRepository extends JpaRepository<TimeSlot, UUID> {
 
     List<TimeSlot> findByCalendarIdAndStartTimeBetween(UUID calendarId, Instant from, Instant to);
 
+    // a slot, but only if it belongs to the given user's calendar (ownership check)
+    Optional<TimeSlot> findByIdAndCalendar_User_Id(UUID id, UUID userId);
+
     /**
      * Loads a slot with a row lock (SELECT ... FOR UPDATE). Concurrent bookings of the
      * same slot are serialised here: the second transaction waits, then sees the slot

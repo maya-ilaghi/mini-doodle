@@ -43,13 +43,13 @@ public class SlotController {
                                    @PathVariable UUID slotId,
                                    @RequestBody CreateSlotRequest request) {
         return SlotResponse.from(
-                slotService.modifySlot(slotId, request.startTime(), request.endTime()));
+                slotService.modifySlot(userId, slotId, request.startTime(), request.endTime()));
     }
 
     @DeleteMapping("/{slotId}")
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void deleteSlot(@PathVariable UUID userId, @PathVariable UUID slotId) {
-        slotService.deleteSlot(slotId);
+        slotService.deleteSlot(userId, slotId);
     }
 
     @GetMapping("/availability")

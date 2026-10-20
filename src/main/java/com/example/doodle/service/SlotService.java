@@ -52,9 +52,8 @@ public class SlotService {
     }
 
     @Transactional
-    public TimeSlot modifySlot(UUID slotId, Instant newStart, Instant newEnd) {
-        TimeSlot slot = slotRepository.findById(slotId)
-                .orElseThrow(() -> new NotFoundException("slot", slotId));
+    public TimeSlot modifySlot(UUID userId, UUID slotId, Instant newStart, Instant newEnd) {
+        TimeSlot slot = findOwnedSlot(userId, slotId);
         slot.setStartTime(newStart);
         slot.setEndTime(newEnd);
         try {
@@ -65,11 +64,18 @@ public class SlotService {
     }
 
     @Transactional
-    public void deleteSlot(UUID slotId) {
-        if (!slotRepository.existsById(slotId)) {
-            throw new NotFoundException("slot", slotId);
-        }
-        slotRepository.deleteById(slotId);
+    public void deleteSlot(UUID userId, UUID slotId) {
+        TimeSlot slot = findOwnedSlot(userId, slotId);
+        slotRepository.delete(slot);
+    }
+
+    /**
+     * Resolves a slot only if it lives in this user's calendar. A slot owned by someone
+     * else is reported as 404 (not 403) so the API doesn't reveal which slot ids exist.
+     */
+    private TimeSlot findOwnedSlot(UUID userId, UUID slotId) {
+        return slotRepository.findByIdAndCalendar_User_Id(slotId, userId)
+                .orElseThrow(() -> new NotFoundException("slot", slotId));
     }
 
     @Transactional(readOnly = true)
