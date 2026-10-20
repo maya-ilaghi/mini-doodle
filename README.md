@@ -104,11 +104,14 @@ atomically, regardless of concurrency. Half-open ranges (`[)`) mean back-to-back
 violation and translates it to `409 Conflict`. Because the rule lives in the schema, it
 holds for every write path (create and modify) without being re-implemented per method.
 
-**Optimistic locking on bookings.** The exclusion constraint stops overlapping *slots*,
-but not two requests booking the *same* free slot at once (same row, no new overlap). A
-`@Version` column on `TimeSlot` handles that race: the second concurrent booking fails the
-version check and gets `409` instead of silently double-booking. Both guards are needed —
-they cover different races.
+**Row lock on bookings.** The exclusion constraint stops overlapping *slots*, but not two
+requests booking the *same* free slot at once (same row, no new overlap). Booking loads the
+slot with `SELECT ... FOR UPDATE`, so concurrent bookings of one slot are serialised: the
+second transaction waits, then sees the slot as `BUSY` and gets `409 Slot is already booked`.
+A pessimistic lock fits here because contention is on a single hot row and the critical
+section is tiny. The `UNIQUE(meeting.slot_id)` constraint stays as a last line of defence,
+and any constraint violation that still reaches the web layer is mapped to `409`, never
+`500`. The `@Version` column on `TimeSlot` remains for lost-update protection on edits.
 
 **Availability is aggregated by slot status.** The free/busy view partitions a user's
 slots in the requested window by their status. A slot's status already is the free/busy

@@ -27,14 +27,17 @@ public class MeetingService {
 
     @Transactional
     public Meeting bookMeeting(UUID slotId, String title, String description, List<String> participantEmails) {
-        TimeSlot slot = slotRepository.findById(slotId)
+        // Row lock: a concurrent booking of the same slot blocks here until we commit,
+        // then reads status=BUSY and gets SlotAlreadyBookedException (409).
+        // The UNIQUE(meeting.slot_id) constraint remains as a last line of defence.
+        TimeSlot slot = slotRepository.findByIdForUpdate(slotId)
                 .orElseThrow(() -> new NotFoundException("slot", slotId));
 
-        if (slot.getSlotStatus() != TimeSlotStatus.FREE) {   // sequential guard
+        if (slot.getSlotStatus() != TimeSlotStatus.FREE) {
             throw new SlotAlreadyBookedException(slotId);
         }
 
-        slot.setSlotStatus(TimeSlotStatus.BUSY);              // @Version insured the concurrent race
+        slot.setSlotStatus(TimeSlotStatus.BUSY);
 
         Meeting meeting = new Meeting(slot, title, description);
         if (participantEmails != null) {
