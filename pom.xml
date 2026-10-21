@@ -20,7 +20,9 @@
     <properties>
         <java.version>21</java.version>
         <springdoc.version>2.6.0</springdoc.version>
-        <testcontainers.version>1.20.4</testcontainers.version>
+        <testcontainers.version>1.21.4</testcontainers.version>
+        <!-- Testcontainers tests are tagged "integration" and skipped by default; see the "integration" profile -->
+        <test.excludedGroups>integration</test.excludedGroups>
     </properties>
 
     <!-- Import the Testcontainers BOM so its artifacts don't each need a version -->
@@ -138,9 +140,20 @@
                 <groupId>org.apache.maven.plugins</groupId>
                 <artifactId>maven-surefire-plugin</artifactId>
                 <configuration>
-                    <excludedGroups>integration</excludedGroups>
+                    <excludedGroups>${test.excludedGroups}</excludedGroups>
                 </configuration>
             </plugin>
         </plugins>
     </build>
+
+    <profiles>
+        <!-- mvn verify -Pintegration : run only the Testcontainers tests (needs Docker) -->
+        <profile>
+            <id>integration</id>
+            <properties>
+                <test.excludedGroups>none</test.excludedGroups>
+                <groups>integration</groups>
+            </properties>
+        </profile>
+    </profiles>
 </project>

@@ -173,11 +173,18 @@ Integration tests are tagged `integration` and excluded from the default build, 
 
 ```bash
 mvn clean install              # unit tests only — no Docker needed
-mvn test -Dgroups=integration  # runs the Testcontainers integration test
+mvn verify -Pintegration       # runs the Testcontainers tests only (needs Docker)
 ```
 
-The integration test needs a Docker daemon exposing API ≥ 1.40 (works out of the box on
-Docker Desktop, Linux, and CI). The same behaviour was also verified manually: booking a
+The integration tests need a running Docker daemon (Docker Desktop, Colima, Linux, or CI).
+Testcontainers 1.21.4+ is required for current Docker Engine releases. With Colima, point
+Testcontainers at its socket first:
+
+```bash
+export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
+export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
+```
+ The same behaviour was also verified manually: booking a
 slot twice returns `409`, and creating an overlapping slot returns `409`.
 
 ## What I'd add with more time
