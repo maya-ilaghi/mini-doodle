@@ -11,6 +11,7 @@ import com.example.doodle.repository.TimeSlotRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.UUID;
 
@@ -41,7 +42,8 @@ public class MeetingService {
 
         Meeting meeting = new Meeting(slot, title, description);
         if (participantEmails != null) {
-            for (String email : participantEmails) {
+            // de-duplicate so a repeated email doesn't trip UNIQUE(meeting_id, email)
+            for (String email : new LinkedHashSet<>(participantEmails)) {
                 meeting.addParticipant(new Participant(meeting, email));
             }
         }

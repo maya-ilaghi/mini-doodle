@@ -5,6 +5,7 @@ import com.example.doodle.controller.dto.SlotResponse;
 import com.example.doodle.domain.TimeSlot;
 import com.example.doodle.domain.TimeSlotStatus;
 import com.example.doodle.domain.User;
+import com.example.doodle.exception.BadRequestException;
 import com.example.doodle.exception.NotFoundException;
 import com.example.doodle.exception.SlotOverlapException;
 import com.example.doodle.repository.TimeSlotRepository;
@@ -15,12 +16,16 @@ import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.sql.SQLException;
 import java.time.Instant;
 import java.util.List;
 import java.util.UUID;
 
 @Service
 public class SlotService {
+
+    private static final String EXCLUSION_VIOLATION = "23P01";
+    private static final String OVERLAP_CONSTRAINT = "time_slot_no_overlap";
 
     private final UserRepository userRepository;
     private final TimeSlotRepository slotRepository;
@@ -39,12 +44,13 @@ public class SlotService {
         try {
             return slotRepository.saveAndFlush(slot);   // flush now so the overlap constraint fires here
         } catch (DataIntegrityViolationException e) {
-            throw new SlotOverlapException(start, end);  // -> 409
+            throw translateOverlap(e, start, end);
         }
     }
 
     @Transactional(readOnly = true)
     public Page<TimeSlot> listSlots(UUID userId, Instant from, Instant to, Pageable pageable) {
+        requireValidWindow(from, to);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("user", userId));
         return slotRepository.findByCalendarIdAndStartTimeBetween(
@@ -59,7 +65,7 @@ public class SlotService {
         try {
             return slotRepository.saveAndFlush(slot);   // modifying times can create an overlap too
         } catch (DataIntegrityViolationException e) {
-            throw new SlotOverlapException(newStart, newEnd);
+            throw translateOverlap(e, newStart, newEnd);
         }
     }
 
@@ -67,6 +73,26 @@ public class SlotService {
     public void deleteSlot(UUID userId, UUID slotId) {
         TimeSlot slot = findOwnedSlot(userId, slotId);
         slotRepository.delete(slot);
+    }
+
+    private static void requireValidWindow(Instant from, Instant to) {
+        if (!from.isBefore(to)) {
+            throw new BadRequestException("'from' must be before 'to'");
+        }
+    }
+
+    /**
+     * Only an exclusion-constraint violation (SQLSTATE 23P01, time_slot_no_overlap) means
+     * "overlap". Anything else is rethrown untouched instead of being mislabelled — it
+     * still reaches the client as a 409 via the global handler, but with an honest message.
+     */
+    private static RuntimeException translateOverlap(DataIntegrityViolationException e,
+                                                     Instant start, Instant end) {
+        Throwable cause = e.getMostSpecificCause();
+        boolean exclusionViolation =
+                (cause instanceof SQLException sql && EXCLUSION_VIOLATION.equals(sql.getSQLState()))
+                || String.valueOf(cause.getMessage()).contains(OVERLAP_CONSTRAINT);
+        return exclusionViolation ? new SlotOverlapException(start, end) : e;
     }
 
     /**
@@ -80,6 +106,7 @@ public class SlotService {
 
     @Transactional(readOnly = true)
     public AvailabilityResponse getAvailability(UUID userId, Instant from, Instant to) {
+        requireValidWindow(from, to);
         // 1. load user -> calendar id
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("user", userId));

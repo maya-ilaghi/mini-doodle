@@ -4,8 +4,8 @@ package com.example.doodle.controller;
 import com.example.doodle.controller.dto.CreateUserRequest;
 import com.example.doodle.controller.dto.UserResponse;
 import com.example.doodle.service.UserService;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
-import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 @RestController
@@ -20,7 +20,7 @@ public class UserController {
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
-    public UserResponse createUser(@RequestBody CreateUserRequest request) {
+    public UserResponse createUser(@Valid @RequestBody CreateUserRequest request) {
         return UserResponse.from(userService.createUser(request.email(), request.name()));
     }
 }

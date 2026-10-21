@@ -3,6 +3,7 @@ package com.example.doodle.controller;
 import com.example.doodle.controller.dto.BookMeetingRequest;
 import com.example.doodle.controller.dto.MeetingResponse;
 import com.example.doodle.service.MeetingService;
+import jakarta.validation.Valid;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
@@ -21,7 +22,7 @@ public class MeetingController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public MeetingResponse bookMeeting(@PathVariable UUID slotId,
-                                       @RequestBody BookMeetingRequest request) {
+                                       @Valid @RequestBody BookMeetingRequest request) {
         return MeetingResponse.from(meetingService.bookMeeting(
                 slotId, request.title(), request.description(), request.participants()));
     }

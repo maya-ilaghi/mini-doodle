@@ -11,6 +11,7 @@ import org.springframework.boot.test.context.SpringBootTest;
 import org.springframework.boot.testcontainers.service.connection.ServiceConnection;
 import org.springframework.http.MediaType;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.ResultActions;
 import org.testcontainers.DockerClientFactory;
 import org.testcontainers.containers.PostgreSQLContainer;
 import org.testcontainers.junit.jupiter.Container;
@@ -18,7 +19,9 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -76,7 +79,77 @@ class ApiIntegrationTest {
                 .andExpect(status().isNoContent());
     }
 
+    // ---- error mapping -------------------------------------------------------------
+
+    @Test
+    void duplicateEmail_is409_not500() throws Exception {
+        String json = "{\"email\":\"dup-%s@example.com\",\"name\":\"Dup\"}".formatted(UUID.randomUUID());
+        mvc.perform(post("/api/v1/users").contentType(MediaType.APPLICATION_JSON).content(json))
+                .andExpect(status().isCreated());
+        mvc.perform(post("/api/v1/users").contentType(MediaType.APPLICATION_JSON).content(json))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(startsWith("A user with this email already exists")));
+    }
+
+    @Test
+    void overlappingSlot_is409() throws Exception {
+        String user = createUser();
+        createSlot(user, "2026-11-04T09:00:00Z", "2026-11-04T10:00:00Z");
+
+        mvc.perform(post("/api/v1/users/{u}/slots", user)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(slotJson("2026-11-04T09:30:00Z", "2026-11-04T10:30:00Z")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(startsWith("Slot overlaps")));
+    }
+
+    @Test
+    void backToBackSlots_doNotOverlap() throws Exception {
+        String user = createUser();
+        createSlot(user, "2026-11-04T11:00:00Z", "2026-11-04T11:30:00Z");
+        createSlot(user, "2026-11-04T11:30:00Z", "2026-11-04T12:00:00Z");   // asserts 201 inside
+    }
+
+    @Test
+    void availabilityWithInvertedWindow_is400() throws Exception {
+        String user = createUser();
+        mvc.perform(get("/api/v1/users/{u}/slots/availability", user)
+                        .param("from", "2026-11-05T00:00:00Z")
+                        .param("to", "2026-11-04T00:00:00Z"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("'from' must be before 'to'"));
+    }
+
+    @Test
+    void bookingTheSameSlotTwice_is409() throws Exception {
+        String user = createUser();
+        String slot = createSlot(user, "2026-11-04T14:00:00Z", "2026-11-04T14:30:00Z");
+
+        bookMeeting(slot).andExpect(status().isCreated());
+        bookMeeting(slot)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("Slot is already booked: " + slot));
+    }
+
+    @Test
+    void duplicateParticipantEmails_areCollapsed() throws Exception {
+        String user = createUser();
+        String slot = createSlot(user, "2026-11-04T15:00:00Z", "2026-11-04T15:30:00Z");
+
+        mvc.perform(post("/api/v1/slots/{s}/meeting", slot)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"title\":\"Sync\",\"participants\":[\"bob@example.com\",\"bob@example.com\"]}"))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.participants.length()").value(1));
+    }
+
     // ---- helpers -------------------------------------------------------------------
+
+    ResultActions bookMeeting(String slotId) throws Exception {
+        return mvc.perform(post("/api/v1/slots/{s}/meeting", slotId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"title\":\"Sync\",\"description\":\"weekly\",\"participants\":[\"bob@example.com\"]}"));
+    }
 
     String createUser() throws Exception {
         String email = "user-" + UUID.randomUUID() + "@example.com";

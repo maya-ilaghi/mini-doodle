@@ -4,6 +4,7 @@ import com.example.doodle.controller.dto.AvailabilityResponse;
 import com.example.doodle.controller.dto.CreateSlotRequest;
 import com.example.doodle.controller.dto.SlotResponse;
 import com.example.doodle.service.SlotService;
+import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -25,7 +26,7 @@ public class SlotController {
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     public SlotResponse createSlot(@PathVariable UUID userId,
-                                   @RequestBody CreateSlotRequest request) {
+                                   @Valid @RequestBody CreateSlotRequest request) {
         return SlotResponse.from(
                 slotService.createSlot(userId, request.startTime(), request.endTime()));
     }
@@ -41,7 +42,7 @@ public class SlotController {
     @PatchMapping("/{slotId}")
     public SlotResponse modifySlot(@PathVariable UUID userId,
                                    @PathVariable UUID slotId,
-                                   @RequestBody CreateSlotRequest request) {
+                                   @Valid @RequestBody CreateSlotRequest request) {
         return SlotResponse.from(
                 slotService.modifySlot(userId, slotId, request.startTime(), request.endTime()));
     }
