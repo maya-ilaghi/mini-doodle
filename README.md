@@ -58,7 +58,7 @@ curl -X POST localhost:8080/api/v1/slots/<slotId>/meeting \
   -d '{"title":"Sync","description":"weekly","participants":["bob@example.com"]}'
 # -> 201 Created; the slot is now BUSY
 
-# 4. List a user's slots in a time window (paginated)
+# 4. List a user's slots in a time window (paginated, sorted by start time)
 curl "localhost:8080/api/v1/users/<userId>/slots?from=2026-11-02T00:00:00Z&to=2026-11-03T00:00:00Z"
 
 # 5. Aggregated free/busy availability over a time frame
@@ -70,7 +70,17 @@ curl "localhost:8080/api/v1/users/<userId>/slots/availability?from=2026-11-02T00
 # 6. Cancel a meeting; the slot becomes FREE again
 curl -X DELETE localhost:8080/api/v1/slots/<slotId>/meeting
 # -> 204 No Content
+
+# 7. Mark a slot busy without booking a meeting (block the time), or free again
+curl -X PATCH localhost:8080/api/v1/users/<userId>/slots/<slotId>/status \
+  -H 'Content-Type: application/json' \
+  -d '{"status":"BUSY"}'
+# -> { "id": "<slotId>", ..., "status": "BUSY" }
 ```
+
+A slot "in a window" is any slot that **overlaps** it (`start < to` and `end > from`), so a
+slot that starts before `from` but runs into the window is included; one that only touches
+an edge is not.
 
 ### Errors
 
@@ -80,7 +90,7 @@ All errors share one body shape: `{"message": "...", "details": ["field: problem
 |--------|------|
 | `400 Bad Request` | Invalid body (missing/blank fields, bad email, `endTime` not after `startTime`), malformed JSON or timestamp, invalid UUID, `from` not before `to` |
 | `404 Not Found` | Unknown user, slot or meeting, or a slot that belongs to a different user |
-| `409 Conflict` | Overlapping slot, slot already booked, editing/deleting a slot that has a meeting, duplicate email |
+| `409 Conflict` | Overlapping slot, slot already booked or marked busy, editing/deleting a slot or changing its status while it has a meeting, duplicate email |
 
 ### Endpoints
 
@@ -91,6 +101,7 @@ All errors share one body shape: `{"message": "...", "details": ["field: problem
 | `GET`    | `/api/v1/users/{userId}/slots?from=&to=` | List slots in a window (paginated) |
 | `GET`    | `/api/v1/users/{userId}/slots/availability?from=&to=` | Aggregated free/busy view |
 | `PATCH`  | `/api/v1/users/{userId}/slots/{slotId}` | Modify a slot's times |
+| `PATCH`  | `/api/v1/users/{userId}/slots/{slotId}/status` | Mark a slot `BUSY` or `FREE` |
 | `DELETE` | `/api/v1/users/{userId}/slots/{slotId}` | Delete a slot |
 | `POST`   | `/api/v1/slots/{slotId}/meeting` | Book a slot as a meeting |
 | `DELETE` | `/api/v1/slots/{slotId}/meeting` | Cancel the meeting and free the slot |
@@ -132,8 +143,15 @@ otherwise the meeting would be silently rescheduled or cascade-deleted. Cancel t
 first. Slot edits and deletes are scoped to the owner's calendar, and a slot owned by
 someone else returns `404`, so slot ids can't be probed.
 
-**Availability is aggregated by slot status.** The free/busy view partitions a user's
-slots in the requested window by their status. A slot's status already is the free/busy
+**Busy has two sources.** A slot is `BUSY` either because a meeting is booked on it, or
+because its owner marked it busy to block the time. A meeting always wins: a slot with a
+meeting can't be set back to `FREE` (cancel the meeting instead), while a slot that is only
+marked busy has no meeting to protect and stays editable. Booking a slot marked busy returns
+`409 Slot is marked busy`. Status changes take the same row lock as booking, so the two can't
+interleave.
+
+**Availability is aggregated by slot status.** The free/busy view partitions every slot that
+overlaps the requested window by its status. A slot's status already is the free/busy
 truth in this model, so this is a simple, honest aggregation (rather than computing gaps
 between meetings, which would be a different calendar-fill model).
 
@@ -154,7 +172,8 @@ to expose in URLs, and they don't leak row counts.
 User 1───1 Calendar 1───* TimeSlot 1───0..1 Meeting 1───* Participant
 ```
 
-A meeting is a booked slot (1:1); creating one flips the slot to `BUSY`. Participants are
+A meeting is a booked slot (1:1); creating one flips the slot to `BUSY`. A slot can also be
+marked `BUSY` by hand, without a meeting. Participants are
 invited by email (with an optional link to a registered user) and carry their own
 response status.
 
@@ -164,7 +183,7 @@ response status.
   rejected with `400` before reaching a service. It runs in the default build.
 - `ApiIntegrationTest` (MockMvc + Testcontainers PostgreSQL) drives the HTTP API end to end:
   overlap and back-to-back slots, ownership, double booking, booked-slot protection,
-  cancellation, duplicate emails and error codes.
+  cancellation, marking slots busy/free, window edges, duplicate emails and error codes.
 - `BookingConcurrencyTest` fires 8 parallel bookings at one slot and asserts exactly one
   succeeds and every other request fails with `SlotAlreadyBookedException` (`409`).
 
@@ -184,14 +203,13 @@ Testcontainers at its socket first:
 export DOCKER_HOST="unix://$HOME/.colima/default/docker.sock"
 export TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE=/var/run/docker.sock
 ```
- The same behaviour was also verified manually: booking a
-slot twice returns `409`, and creating an overlapping slot returns `409`.
 
 ## What I'd add with more time
 
 - Authentication / authorization (per-user access to slots).
 - Participants fully linked to `User` records with RSVP responses.
 - Multi-calendar support per user (the schema already allows it by relaxing the unique constraint).
-- More test coverage (service-level unit tests, controller/web-layer tests).
+- Service-level unit tests alongside the API-level ones.
 - Rate limiting and caching of availability queries.
-- Explicit busy/free toggling of slots and editing meeting details after booking.
+- Configurable slot durations (e.g. generate 30-minute slots across a day) and editing
+  meeting details after booking.

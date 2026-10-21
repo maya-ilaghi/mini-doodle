@@ -17,23 +17,41 @@ import java.util.UUID;
 
 public interface TimeSlotRepository extends JpaRepository<TimeSlot, UUID> {
 
-    // slots in a user's calendar within a time window (paginated) — rides the (calendar_id, start_time) index
-    Page<TimeSlot> findByCalendarIdAndStartTimeBetween(
-            UUID calendarId, Instant from, Instant to, Pageable pageable);
+    /*
+     * "In the window [from, to)" means the slot OVERLAPS the window: start < to AND end > from.
+     * This includes a slot that starts before `from` but runs into the window, and excludes one
+     * that merely touches an edge (consistent with the half-open ranges used for overlap checks).
+     * The start_time < :to predicate rides the (calendar_id, start_time) index.
+     */
+
+    // paginated listing; the caller supplies the sort (defaults to startTime in the controller)
+    @Query(value = "select s from TimeSlot s where s.calendar.id = :calendarId"
+                 + " and s.startTime < :to and s.endTime > :from",
+           countQuery = "select count(s) from TimeSlot s where s.calendar.id = :calendarId"
+                 + " and s.startTime < :to and s.endTime > :from")
+    Page<TimeSlot> findOverlapping(@Param("calendarId") UUID calendarId,
+                                   @Param("from") Instant from,
+                                   @Param("to") Instant to,
+                                   Pageable pageable);
+
+    // everything in the window, for the aggregated free/busy view
+    @Query("select s from TimeSlot s where s.calendar.id = :calendarId"
+         + " and s.startTime < :to and s.endTime > :from order by s.startTime")
+    List<TimeSlot> findAllOverlapping(@Param("calendarId") UUID calendarId,
+                                      @Param("from") Instant from,
+                                      @Param("to") Instant to);
 
     // free-vs-busy filtering — rides the (calendar_id, status) index
     Page<TimeSlot> findByCalendarIdAndSlotStatus(
             UUID calendarId, TimeSlotStatus status, Pageable pageable);
 
-    List<TimeSlot> findByCalendarIdAndStartTimeBetween(UUID calendarId, Instant from, Instant to);
-
     // a slot, but only if it belongs to the given user's calendar (ownership check)
     Optional<TimeSlot> findByIdAndCalendar_User_Id(UUID id, UUID userId);
 
     /**
-     * Loads a slot with a row lock (SELECT ... FOR UPDATE). Concurrent bookings of the
-     * same slot are serialised here: the second transaction waits, then sees the slot
-     * as BUSY and is rejected with a clean 409 instead of failing later on a constraint.
+     * Loads a slot with a row lock (SELECT ... FOR UPDATE). Bookings, cancellations and
+     * status changes of the same slot are serialised here: a second transaction waits,
+     * then sees the committed state and is rejected with a clean 409 if it no longer applies.
      */
     @Lock(LockModeType.PESSIMISTIC_WRITE)
     @Query("select s from TimeSlot s where s.id = :id")

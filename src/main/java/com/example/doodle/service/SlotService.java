@@ -9,6 +9,7 @@ import com.example.doodle.exception.BadRequestException;
 import com.example.doodle.exception.NotFoundException;
 import com.example.doodle.exception.SlotHasMeetingException;
 import com.example.doodle.exception.SlotOverlapException;
+import com.example.doodle.repository.MeetingRepository;
 import com.example.doodle.repository.TimeSlotRepository;
 import com.example.doodle.repository.UserRepository;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -30,10 +31,14 @@ public class SlotService {
 
     private final UserRepository userRepository;
     private final TimeSlotRepository slotRepository;
+    private final MeetingRepository meetingRepository;
 
-    public SlotService(UserRepository userRepository, TimeSlotRepository slotRepository) {
+    public SlotService(UserRepository userRepository,
+                       TimeSlotRepository slotRepository,
+                       MeetingRepository meetingRepository) {
         this.userRepository = userRepository;
         this.slotRepository = slotRepository;
+        this.meetingRepository = meetingRepository;
     }
 
     @Transactional
@@ -54,14 +59,13 @@ public class SlotService {
         requireValidWindow(from, to);
         User user = userRepository.findById(userId)
                 .orElseThrow(() -> new NotFoundException("user", userId));
-        return slotRepository.findByCalendarIdAndStartTimeBetween(
-                user.getCalendar().getId(), from, to, pageable);
+        return slotRepository.findOverlapping(user.getCalendar().getId(), from, to, pageable);
     }
 
     @Transactional
     public TimeSlot modifySlot(UUID userId, UUID slotId, Instant newStart, Instant newEnd) {
         TimeSlot slot = findOwnedSlot(userId, slotId);
-        requireNotBooked(slot);
+        requireNoMeeting(slot);
         slot.setStartTime(newStart);
         slot.setEndTime(newEnd);
         try {
@@ -74,17 +78,34 @@ public class SlotService {
     @Transactional
     public void deleteSlot(UUID userId, UUID slotId) {
         TimeSlot slot = findOwnedSlot(userId, slotId);
-        requireNotBooked(slot);
+        requireNoMeeting(slot);
         slotRepository.delete(slot);   // versioned delete: loses cleanly to a concurrent booking
+    }
+
+    /**
+     * Marks a slot busy or free by hand, e.g. to block time without booking a meeting.
+     * Takes the same row lock as booking, so a status change and a booking of one slot
+     * can't interleave. A slot that carries a meeting is BUSY because of that meeting;
+     * its status can only change by cancelling the meeting.
+     */
+    @Transactional
+    public TimeSlot updateStatus(UUID userId, UUID slotId, TimeSlotStatus status) {
+        TimeSlot slot = slotRepository.findByIdForUpdate(slotId)
+                .filter(s -> s.getCalendar().getUser().getId().equals(userId))
+                .orElseThrow(() -> new NotFoundException("slot", slotId));
+        requireNoMeeting(slot);
+        slot.setSlotStatus(status);
+        return slotRepository.saveAndFlush(slot);
     }
 
     /**
      * A booked slot carries a meeting. Moving it would silently reschedule the meeting and
      * deleting it would silently cascade-delete the meeting, so both require cancelling first.
+     * (A slot that is BUSY only because its owner marked it so has no meeting and stays editable.)
      * A booking that lands concurrently is caught by the @Version check on flush (-> 409).
      */
-    private static void requireNotBooked(TimeSlot slot) {
-        if (slot.getSlotStatus() == TimeSlotStatus.BUSY) {
+    private void requireNoMeeting(TimeSlot slot) {
+        if (meetingRepository.existsBySlot_Id(slot.getId())) {
             throw new SlotHasMeetingException(slot.getId());
         }
     }
@@ -126,8 +147,8 @@ public class SlotService {
                 .orElseThrow(() -> new NotFoundException("user", userId));
         UUID calendarId = user.getCalendar().getId();
 
-        // 2. fetch slots in range
-        List<TimeSlot> slots = slotRepository.findByCalendarIdAndStartTimeBetween(calendarId, from, to);
+        // 2. fetch every slot that overlaps the window, ordered by start time
+        List<TimeSlot> slots = slotRepository.findAllOverlapping(calendarId, from, to);
 
         // 3. partition into free vs busy by status
         List<SlotResponse> free = slots.stream()

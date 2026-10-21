@@ -133,4 +133,24 @@ class RequestValidationTest {
                 .andExpect(status().isBadRequest());
         verifyNoInteractions(meetingService);
     }
+
+    @Test
+    void statusUpdateWithoutStatus_is400() throws Exception {
+        mvc.perform(patch("/api/v1/users/{u}/slots/{s}/status", userId, slotId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.details", hasItem("status: must not be null")));
+        verifyNoInteractions(slotService);
+    }
+
+    @Test
+    void statusUpdateWithUnknownStatus_is400() throws Exception {
+        mvc.perform(patch("/api/v1/users/{u}/slots/{s}/status", userId, slotId)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"MAYBE\"}"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.message").value("Malformed request body"));
+        verifyNoInteractions(slotService);
+    }
 }

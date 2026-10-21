@@ -19,6 +19,8 @@ import org.testcontainers.junit.jupiter.Testcontainers;
 
 import java.util.UUID;
 
+import static org.hamcrest.Matchers.hasItem;
+import static org.hamcrest.Matchers.not;
 import static org.hamcrest.Matchers.startsWith;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
@@ -190,7 +192,99 @@ class ApiIntegrationTest {
                 .andExpect(status().isNotFound());
     }
 
+    // ---- marking slots busy / free -------------------------------------------------
+
+    @Test
+    void slotCanBeMarkedBusyAndFreeAgain() throws Exception {
+        String user = createUser();
+        String slot = createSlot(user, "2026-11-09T09:00:00Z", "2026-11-09T09:30:00Z");
+
+        setStatus(user, slot, "BUSY")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("BUSY"));
+        bookMeeting(slot)
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value("Slot is marked busy: " + slot));
+
+        setStatus(user, slot, "FREE")
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FREE"));
+        bookMeeting(slot).andExpect(status().isCreated());
+    }
+
+    @Test
+    void statusOfABookedSlotCannotBeChanged() throws Exception {
+        String user = createUser();
+        String slot = createSlot(user, "2026-11-09T10:00:00Z", "2026-11-09T10:30:00Z");
+        bookMeeting(slot).andExpect(status().isCreated());
+
+        setStatus(user, slot, "FREE")
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(startsWith("Slot has a meeting")));
+    }
+
+    @Test
+    void cannotChangeStatusOfAnotherUsersSlot() throws Exception {
+        String alice = createUser();
+        String bob = createUser();
+        String aliceSlot = createSlot(alice, "2026-11-09T11:00:00Z", "2026-11-09T11:30:00Z");
+
+        setStatus(bob, aliceSlot, "BUSY").andExpect(status().isNotFound());
+    }
+
+    @Test
+    void manuallyBusySlotCanStillBeMovedAndDeleted() throws Exception {
+        String user = createUser();
+        String slot = createSlot(user, "2026-11-09T12:00:00Z", "2026-11-09T12:30:00Z");
+        setStatus(user, slot, "BUSY").andExpect(status().isOk());
+
+        // no meeting on it, so it's just blocked time and stays editable
+        mvc.perform(patch("/api/v1/users/{u}/slots/{s}", user, slot)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(slotJson("2026-11-09T14:00:00Z", "2026-11-09T14:30:00Z")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("BUSY"));
+        mvc.perform(delete("/api/v1/users/{u}/slots/{s}", user, slot))
+                .andExpect(status().isNoContent());
+    }
+
+    // ---- time windows --------------------------------------------------------------
+
+    @Test
+    void windowQueriesReturnSlotsThatOverlapTheWindow() throws Exception {
+        String user = createUser();
+        // window under test: [10:00, 12:00)
+        String startsBefore = createSlot(user, "2026-11-10T09:30:00Z", "2026-11-10T10:30:00Z"); // runs into it
+        String inside       = createSlot(user, "2026-11-10T10:30:00Z", "2026-11-10T11:00:00Z");
+        String touchesEnd   = createSlot(user, "2026-11-10T12:00:00Z", "2026-11-10T12:30:00Z"); // starts at `to`
+        setStatus(user, inside, "BUSY").andExpect(status().isOk());
+
+        mvc.perform(get("/api/v1/users/{u}/slots/availability", user)
+                        .param("from", "2026-11-10T10:00:00Z")
+                        .param("to", "2026-11-10T12:00:00Z"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.free.length()").value(1))
+                .andExpect(jsonPath("$.free[0].id").value(startsBefore))
+                .andExpect(jsonPath("$.busy.length()").value(1))
+                .andExpect(jsonPath("$.busy[0].id").value(inside))
+                .andExpect(jsonPath("$.free[*].id", not(hasItem(touchesEnd))));
+
+        mvc.perform(get("/api/v1/users/{u}/slots", user)
+                        .param("from", "2026-11-10T10:00:00Z")
+                        .param("to", "2026-11-10T12:00:00Z"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.totalElements").value(2))
+                .andExpect(jsonPath("$.content[0].id").value(startsBefore))   // sorted by start time
+                .andExpect(jsonPath("$.content[1].id").value(inside));
+    }
+
     // ---- helpers -------------------------------------------------------------------
+
+    ResultActions setStatus(String userId, String slotId, String status) throws Exception {
+        return mvc.perform(patch("/api/v1/users/{u}/slots/{s}/status", userId, slotId)
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("{\"status\":\"%s\"}".formatted(status)));
+    }
 
     ResultActions bookMeeting(String slotId) throws Exception {
         return mvc.perform(post("/api/v1/slots/{s}/meeting", slotId)

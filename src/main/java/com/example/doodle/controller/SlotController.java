@@ -3,10 +3,12 @@ package com.example.doodle.controller;
 import com.example.doodle.controller.dto.AvailabilityResponse;
 import com.example.doodle.controller.dto.CreateSlotRequest;
 import com.example.doodle.controller.dto.SlotResponse;
+import com.example.doodle.controller.dto.UpdateSlotStatusRequest;
 import com.example.doodle.service.SlotService;
 import jakarta.validation.Valid;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
+import org.springframework.data.web.PageableDefault;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.*;
 
@@ -35,7 +37,7 @@ public class SlotController {
     public Page<SlotResponse> listSlots(@PathVariable UUID userId,
                                         @RequestParam Instant from,
                                         @RequestParam Instant to,
-                                        Pageable pageable) {
+                                        @PageableDefault(size = 20, sort = "startTime") Pageable pageable) {
         return slotService.listSlots(userId, from, to, pageable).map(SlotResponse::from);
     }
 
@@ -45,6 +47,13 @@ public class SlotController {
                                    @Valid @RequestBody CreateSlotRequest request) {
         return SlotResponse.from(
                 slotService.modifySlot(userId, slotId, request.startTime(), request.endTime()));
+    }
+
+    @PatchMapping("/{slotId}/status")
+    public SlotResponse updateStatus(@PathVariable UUID userId,
+                                     @PathVariable UUID slotId,
+                                     @Valid @RequestBody UpdateSlotStatusRequest request) {
+        return SlotResponse.from(slotService.updateStatus(userId, slotId, request.status()));
     }
 
     @DeleteMapping("/{slotId}")

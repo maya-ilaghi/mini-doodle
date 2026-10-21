@@ -9,4 +9,6 @@ import java.util.UUID;
 public interface MeetingRepository extends JpaRepository<Meeting, UUID> {
 
     Optional<Meeting> findBySlot_Id(UUID slotId);
+
+    boolean existsBySlot_Id(UUID slotId);
 }

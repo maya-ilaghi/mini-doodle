@@ -6,6 +6,7 @@ import com.example.doodle.domain.TimeSlot;
 import com.example.doodle.domain.TimeSlotStatus;
 import com.example.doodle.exception.NotFoundException;
 import com.example.doodle.exception.SlotAlreadyBookedException;
+import com.example.doodle.exception.SlotMarkedBusyException;
 import com.example.doodle.repository.MeetingRepository;
 import com.example.doodle.repository.TimeSlotRepository;
 import org.springframework.stereotype.Service;
@@ -35,7 +36,10 @@ public class MeetingService {
                 .orElseThrow(() -> new NotFoundException("slot", slotId));
 
         if (slot.getSlotStatus() != TimeSlotStatus.FREE) {
-            throw new SlotAlreadyBookedException(slotId);
+            // BUSY either because it already has a meeting, or because the owner marked it busy
+            throw meetingRepository.existsBySlot_Id(slotId)
+                    ? new SlotAlreadyBookedException(slotId)
+                    : new SlotMarkedBusyException(slotId);
         }
 
         slot.setSlotStatus(TimeSlotStatus.BUSY);

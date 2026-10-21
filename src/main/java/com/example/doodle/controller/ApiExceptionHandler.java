@@ -6,6 +6,7 @@ import com.example.doodle.exception.EmailAlreadyRegisteredException;
 import com.example.doodle.exception.NotFoundException;
 import com.example.doodle.exception.SlotAlreadyBookedException;
 import com.example.doodle.exception.SlotHasMeetingException;
+import com.example.doodle.exception.SlotMarkedBusyException;
 import com.example.doodle.exception.SlotOverlapException;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.HttpStatus;
@@ -73,6 +74,7 @@ public class ApiExceptionHandler {
             SlotOverlapException.class,
             SlotAlreadyBookedException.class,
             SlotHasMeetingException.class,
+            SlotMarkedBusyException.class,
             EmailAlreadyRegisteredException.class,
             ObjectOptimisticLockingFailureException.class
     })
