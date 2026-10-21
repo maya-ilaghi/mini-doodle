@@ -7,6 +7,7 @@ import com.example.doodle.domain.TimeSlotStatus;
 import com.example.doodle.domain.User;
 import com.example.doodle.exception.BadRequestException;
 import com.example.doodle.exception.NotFoundException;
+import com.example.doodle.exception.SlotHasMeetingException;
 import com.example.doodle.exception.SlotOverlapException;
 import com.example.doodle.repository.TimeSlotRepository;
 import com.example.doodle.repository.UserRepository;
@@ -60,6 +61,7 @@ public class SlotService {
     @Transactional
     public TimeSlot modifySlot(UUID userId, UUID slotId, Instant newStart, Instant newEnd) {
         TimeSlot slot = findOwnedSlot(userId, slotId);
+        requireNotBooked(slot);
         slot.setStartTime(newStart);
         slot.setEndTime(newEnd);
         try {
@@ -72,7 +74,19 @@ public class SlotService {
     @Transactional
     public void deleteSlot(UUID userId, UUID slotId) {
         TimeSlot slot = findOwnedSlot(userId, slotId);
-        slotRepository.delete(slot);
+        requireNotBooked(slot);
+        slotRepository.delete(slot);   // versioned delete: loses cleanly to a concurrent booking
+    }
+
+    /**
+     * A booked slot carries a meeting. Moving it would silently reschedule the meeting and
+     * deleting it would silently cascade-delete the meeting, so both require cancelling first.
+     * A booking that lands concurrently is caught by the @Version check on flush (-> 409).
+     */
+    private static void requireNotBooked(TimeSlot slot) {
+        if (slot.getSlotStatus() == TimeSlotStatus.BUSY) {
+            throw new SlotHasMeetingException(slot.getId());
+        }
     }
 
     private static void requireValidWindow(Instant from, Instant to) {

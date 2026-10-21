@@ -50,4 +50,19 @@ public class MeetingService {
 
         return meetingRepository.save(meeting);
     }
+
+    /**
+     * Cancels the meeting booked on a slot and frees the slot again. Takes the same row
+     * lock as booking, so a cancel and a re-book of the same slot can't interleave.
+     */
+    @Transactional
+    public void cancelMeeting(UUID slotId) {
+        TimeSlot slot = slotRepository.findByIdForUpdate(slotId)
+                .orElseThrow(() -> new NotFoundException("slot", slotId));
+        Meeting meeting = meetingRepository.findBySlot_Id(slotId)
+                .orElseThrow(() -> new NotFoundException("meeting for slot", slotId));
+
+        meetingRepository.delete(meeting);      // participants go with it (cascade + orphanRemoval)
+        slot.setSlotStatus(TimeSlotStatus.FREE);
+    }
 }

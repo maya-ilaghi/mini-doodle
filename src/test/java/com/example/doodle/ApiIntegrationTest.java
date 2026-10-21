@@ -143,6 +143,53 @@ class ApiIntegrationTest {
                 .andExpect(jsonPath("$.participants.length()").value(1));
     }
 
+    // ---- booked slots --------------------------------------------------------------
+
+    @Test
+    void bookedSlotCannotBeMovedOrDeleted() throws Exception {
+        String user = createUser();
+        String slot = createSlot(user, "2026-11-06T09:00:00Z", "2026-11-06T09:30:00Z");
+        bookMeeting(slot).andExpect(status().isCreated());
+
+        mvc.perform(patch("/api/v1/users/{u}/slots/{s}", user, slot)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(slotJson("2026-11-06T13:00:00Z", "2026-11-06T13:30:00Z")))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.message").value(startsWith("Slot has a meeting")));
+
+        mvc.perform(delete("/api/v1/users/{u}/slots/{s}", user, slot))
+                .andExpect(status().isConflict());
+    }
+
+    @Test
+    void cancellingAMeetingFreesTheSlot() throws Exception {
+        String user = createUser();
+        String slot = createSlot(user, "2026-11-06T10:00:00Z", "2026-11-06T10:30:00Z");
+        bookMeeting(slot).andExpect(status().isCreated());
+
+        mvc.perform(delete("/api/v1/slots/{s}/meeting", slot))
+                .andExpect(status().isNoContent());
+
+        // free again: can be re-booked, and once cancelled again, edited
+        bookMeeting(slot).andExpect(status().isCreated());
+        mvc.perform(delete("/api/v1/slots/{s}/meeting", slot))
+                .andExpect(status().isNoContent());
+        mvc.perform(patch("/api/v1/users/{u}/slots/{s}", user, slot)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content(slotJson("2026-11-06T16:00:00Z", "2026-11-06T16:30:00Z")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("FREE"));
+    }
+
+    @Test
+    void cancellingWhenNoMeetingExists_is404() throws Exception {
+        String user = createUser();
+        String slot = createSlot(user, "2026-11-06T11:00:00Z", "2026-11-06T11:30:00Z");
+
+        mvc.perform(delete("/api/v1/slots/{s}/meeting", slot))
+                .andExpect(status().isNotFound());
+    }
+
     // ---- helpers -------------------------------------------------------------------
 
     ResultActions bookMeeting(String slotId) throws Exception {

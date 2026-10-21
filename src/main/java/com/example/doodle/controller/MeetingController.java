@@ -26,4 +26,10 @@ public class MeetingController {
         return MeetingResponse.from(meetingService.bookMeeting(
                 slotId, request.title(), request.description(), request.participants()));
     }
+
+    @DeleteMapping
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    public void cancelMeeting(@PathVariable UUID slotId) {
+        meetingService.cancelMeeting(slotId);
+    }
 }
