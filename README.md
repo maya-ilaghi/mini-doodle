@@ -49,7 +49,7 @@ curl -X POST localhost:8080/api/v1/users \
 # 2. Create a free slot in that user's calendar
 curl -X POST localhost:8080/api/v1/users/<userId>/slots \
   -H 'Content-Type: application/json' \
-  -d '{"startTime":"2026-08-10T10:00:00Z","endTime":"2026-08-10T10:30:00Z"}'
+  -d '{"startTime":"2026-11-02T10:00:00Z","endTime":"2026-11-02T10:30:00Z"}'
 # -> { "id": "<slotId>", ..., "status": "FREE" }
 
 # 3. Book the slot as a meeting
@@ -59,15 +59,28 @@ curl -X POST localhost:8080/api/v1/slots/<slotId>/meeting \
 # -> 201 Created; the slot is now BUSY
 
 # 4. List a user's slots in a time window (paginated)
-curl "localhost:8080/api/v1/users/<userId>/slots?from=2026-08-10T00:00:00Z&to=2026-08-11T00:00:00Z"
+curl "localhost:8080/api/v1/users/<userId>/slots?from=2026-11-02T00:00:00Z&to=2026-11-03T00:00:00Z"
 
 # 5. Aggregated free/busy availability over a time frame
-curl "localhost:8080/api/v1/users/<userId>/slots/availability?from=2026-08-10T00:00:00Z&to=2026-08-11T00:00:00Z"
+curl "localhost:8080/api/v1/users/<userId>/slots/availability?from=2026-11-02T00:00:00Z&to=2026-11-03T00:00:00Z"
 # -> { "from": "...", "to": "...", "free": [ ... ], "busy": [ ... ] }
 ```
 
-Booking the same slot twice returns **409 Conflict** (`Slot is already booked`).
-Creating an overlapping slot returns **409 Conflict** (`Slot overlaps an existing slot`).
+```bash
+# 6. Cancel a meeting; the slot becomes FREE again
+curl -X DELETE localhost:8080/api/v1/slots/<slotId>/meeting
+# -> 204 No Content
+```
+
+### Errors
+
+All errors share one body shape: `{"message": "...", "details": ["field: problem", ...]}`.
+
+| Status | When |
+|--------|------|
+| `400 Bad Request` | Invalid body (missing/blank fields, bad email, `endTime` not after `startTime`), malformed JSON or timestamp, invalid UUID, `from` not before `to` |
+| `404 Not Found` | Unknown user, slot or meeting, or a slot that belongs to a different user |
+| `409 Conflict` | Overlapping slot, slot already booked, editing/deleting a slot that has a meeting, duplicate email |
 
 ### Endpoints
 
@@ -80,6 +93,7 @@ Creating an overlapping slot returns **409 Conflict** (`Slot overlaps an existin
 | `PATCH`  | `/api/v1/users/{userId}/slots/{slotId}` | Modify a slot's times |
 | `DELETE` | `/api/v1/users/{userId}/slots/{slotId}` | Delete a slot |
 | `POST`   | `/api/v1/slots/{slotId}/meeting` | Book a slot as a meeting |
+| `DELETE` | `/api/v1/slots/{slotId}/meeting` | Cancel the meeting and free the slot |
 
 ## Design decisions
 
@@ -113,6 +127,11 @@ section is tiny. The `UNIQUE(meeting.slot_id)` constraint stays as a last line o
 and any constraint violation that still reaches the web layer is mapped to `409`, never
 `500`. The `@Version` column on `TimeSlot` remains for lost-update protection on edits.
 
+**Booked slots are protected.** A slot with a meeting can't be moved or deleted (`409`);
+otherwise the meeting would be silently rescheduled or cascade-deleted. Cancel the meeting
+first. Slot edits and deletes are scoped to the owner's calendar, and a slot owned by
+someone else returns `404`, so slot ids can't be probed.
+
 **Availability is aggregated by slot status.** The free/busy view partitions a user's
 slots in the requested window by their status. A slot's status already is the free/busy
 truth in this model, so this is a simple, honest aggregation (rather than computing gaps
@@ -141,10 +160,13 @@ response status.
 
 ## Testing
 
-Unit-style tests run in the default build. The integration test
-(`BookingConcurrencyTest`) uses Testcontainers to start a real PostgreSQL and fires two
-concurrent bookings at the same slot, asserting exactly one succeeds — proving the
-optimistic-lock guard end to end.
+- `RequestValidationTest` (`@WebMvcTest`, no database) checks that invalid input is
+  rejected with `400` before reaching a service. It runs in the default build.
+- `ApiIntegrationTest` (MockMvc + Testcontainers PostgreSQL) drives the HTTP API end to end:
+  overlap and back-to-back slots, ownership, double booking, booked-slot protection,
+  cancellation, duplicate emails and error codes.
+- `BookingConcurrencyTest` fires 8 parallel bookings at one slot and asserts exactly one
+  succeeds and every other request fails with `SlotAlreadyBookedException` (`409`).
 
 Integration tests are tagged `integration` and excluded from the default build, so
 `mvn clean install` runs fast and green without requiring Docker:
@@ -165,4 +187,4 @@ slot twice returns `409`, and creating an overlapping slot returns `409`.
 - Multi-calendar support per user (the schema already allows it by relaxing the unique constraint).
 - More test coverage (service-level unit tests, controller/web-layer tests).
 - Rate limiting and caching of availability queries.
-- A duplicate-email conflict mapped to `409` (currently surfaces as a generic error).
+- Explicit busy/free toggling of slots and editing meeting details after booking.
